@@ -1,9 +1,10 @@
 """
-多機器人清掃模擬器
-Multi-Robot Vacuum Cleaner Simulator
+多機器人能量求生模擬器
+Multi-Robot Energy Survival Simulator
 
-這是一個用於強化學習的多智能體模擬環境
-目前只實作遊戲引擎本身，不包含 RL 訓練邏輯
+這是一個用於研究多智能體群體動態的簡化模擬環境
+專注於能量管理、隨機探索和生存策略
+不包含家具障礙和垃圾收集機制
 """
 
 import numpy as np
@@ -14,10 +15,11 @@ from typing import Dict, List, Tuple, Any
 
 class RobotVacuumEnv:
     """
-    多機器人清掃環境類別
+    多機器人能量求生環境類別
 
-    這個環境模擬4台機器人在一個 n×n 的房間中清掃垃圾
-    房間包含家具（障礙物）和充電座
+    這個環境模擬4台機器人在一個 n×n 的空房間中求生
+    機器人需要管理能量，在充電座充電，並避免與其他機器人碰撞
+    專注於能量管理和多智能體互動動態
     """
 
     # 動作定義
@@ -29,14 +31,11 @@ class RobotVacuumEnv:
 
     # 地圖元素定義
     EMPTY = 0      # 空地
-    FURNITURE = 1  # 家具/障礙物
     CHARGER = 2    # 充電座
 
     # 顏色定義 (RGB)
     COLOR_EMPTY = (255, 255, 255)      # 白色 - 空地
-    COLOR_FURNITURE = (139, 69, 19)    # 棕色 - 家具
     COLOR_CHARGER = (0, 100, 255)      # 藍色 - 充電座
-    COLOR_GARBAGE = (50, 50, 50)       # 深灰色 - 垃圾
     COLOR_GRID = (200, 200, 200)       # 淺灰色 - 網格線
 
     # 機器人顏色
@@ -53,28 +52,25 @@ class RobotVacuumEnv:
 
         Args:
             config: 配置字典，包含以下參數：
-                - n: 房間大小 (n × n)
-                - k: 家具的最小連續格數
-                - p: 每個空位每回合生成垃圾的機率
+                - n: 房間大小 (n × n)，預設 3
                 - initial_energy: 機器人初始能量
                 - e_move: 移動消耗的能量
                 - e_charge: 充電增加的能量
                 - e_collision: 碰撞消耗的能量
                 - n_steps: 一局的總回合數
+                - epsilon: 探索率（用於 epsilon-greedy 策略）
         """
         # 儲存配置參數
-        self.n = config['n']
-        self.k = config['k']
-        self.p = config['p']
+        self.n = config.get('n', 3)  # 預設 3x3
         self.initial_energy = config['initial_energy']
         self.e_move = config['e_move']
         self.e_charge = config['e_charge']
         self.e_collision = config['e_collision']
         self.n_steps = config['n_steps']
+        self.epsilon = config.get('epsilon', 0.2)  # 預設探索率 20%
 
-        # 初始化地圖
-        self.static_grid = None   # 靜態地圖（家具、充電座）
-        self.dynamic_grid = None  # 動態地圖（垃圾）
+        # 初始化地圖（只有充電座，沒有家具和垃圾）
+        self.static_grid = None   # 靜態地圖（充電座）
 
         # 初始化機器人列表
         self.robots = []
@@ -103,18 +99,14 @@ class RobotVacuumEnv:
         Returns:
             初始狀態字典
         """
-        # 1. 初始化地圖
+        # 1. 初始化地圖（只有空地和充電座）
         self.static_grid = np.zeros((self.n, self.n), dtype=np.int32)
-        self.dynamic_grid = np.zeros((self.n, self.n), dtype=np.int32)
 
         # 2. 在四個角落放置充電座
         for y, x in self.charger_positions:
             self.static_grid[y, x] = self.CHARGER
 
-        # 3. 隨機生成家具
-        self._generate_furniture()
-
-        # 4. 初始化4台機器人，放在四個角落
+        # 3. 初始化4台機器人，放在四個角落
         self.robots = []
         for i, (y, x) in enumerate(self.charger_positions):
             robot = {
@@ -122,82 +114,15 @@ class RobotVacuumEnv:
                 'x': x,
                 'y': y,
                 'energy': self.initial_energy,
-                'garbage_collected': 0,
                 'is_active': True,
                 'charge_count': 0
             }
             self.robots.append(robot)
 
-        # 5. 重置回合計數
+        # 4. 重置回合計數
         self.current_step = 0
 
         return self.get_global_state()
-
-    def _generate_furniture(self):
-        """
-        使用隨機漫步演算法生成至少 k 格相連的家具
-        確保不會擋住充電座或角落
-        """
-        # 從中間區域選擇一個起始點
-        mid = self.n // 2
-        start_x = random.randint(mid - self.n // 4, mid + self.n // 4)
-        start_y = random.randint(mid - self.n // 4, mid + self.n // 4)
-
-        # 確保起始點不在充電座上
-        while (start_y, start_x) in self.charger_positions:
-            start_x = random.randint(1, self.n - 2)
-            start_y = random.randint(1, self.n - 2)
-
-        # 使用隨機漫步生成家具
-        furniture_cells = set()
-        furniture_cells.add((start_y, start_x))
-
-        current_x, current_y = start_x, start_y
-
-        # 生成至少 k 格家具
-        while len(furniture_cells) < self.k:
-            # 隨機選擇一個方向
-            direction = random.randint(0, 3)
-
-            if direction == 0:  # 上
-                new_y, new_x = current_y - 1, current_x
-            elif direction == 1:  # 下
-                new_y, new_x = current_y + 1, current_x
-            elif direction == 2:  # 左
-                new_y, new_x = current_y, current_x - 1
-            else:  # 右
-                new_y, new_x = current_y, current_x + 1
-
-            # 檢查邊界和充電座
-            if (0 <= new_x < self.n and 0 <= new_y < self.n and
-                (new_y, new_x) not in self.charger_positions):
-                furniture_cells.add((new_y, new_x))
-                current_x, current_y = new_x, new_y
-
-        # 可選：繼續擴展到更多格子（讓家具更大）
-        additional_cells = random.randint(self.k // 2, self.k)
-        for _ in range(additional_cells):
-            if furniture_cells:
-                # 從現有家具中隨機選一個格子
-                current_y, current_x = random.choice(list(furniture_cells))
-                direction = random.randint(0, 3)
-
-                if direction == 0:
-                    new_y, new_x = current_y - 1, current_x
-                elif direction == 1:
-                    new_y, new_x = current_y + 1, current_x
-                elif direction == 2:
-                    new_y, new_x = current_y, current_x - 1
-                else:
-                    new_y, new_x = current_y, current_x + 1
-
-                if (0 <= new_x < self.n and 0 <= new_y < self.n and
-                    (new_y, new_x) not in self.charger_positions):
-                    furniture_cells.add((new_y, new_x))
-
-        # 將家具設置到地圖上
-        for y, x in furniture_cells:
-            self.static_grid[y, x] = self.FURNITURE
 
     def step(self, actions: List[int]):
         """
@@ -253,18 +178,25 @@ class RobotVacuumEnv:
                 # 移動動作
                 collision = False
 
-                # 碰撞檢測1: 邊界和家具
+                # 碰撞檢測1: 邊界
                 if not (0 <= planned_x < self.n and 0 <= planned_y < self.n):
                     collision = True  # 超出邊界
-                elif self.static_grid[planned_y, planned_x] == self.FURNITURE:
-                    collision = True  # 撞到家具
 
-                # 碰撞檢測2: 其他機器人
+                # 碰撞檢測2: 其他機器人（檢查當前位置）
                 if not collision:
                     for j, other_robot in enumerate(self.robots):
                         if i != j and other_robot['is_active']:
                             if (other_robot['x'] == planned_x and
                                 other_robot['y'] == planned_y):
+                                collision = True
+                                break
+
+                # 碰撞檢測3: 搶佔同一格（兩個機器人想移到同一位置）
+                if not collision:
+                    for j in range(len(planned_positions)):
+                        if i != j and self.robots[j]['is_active']:
+                            if (planned_positions[j] == (planned_y, planned_x) and
+                                j < i):  # 只檢查較早處理的機器人
                                 collision = True
                                 break
 
@@ -278,18 +210,7 @@ class RobotVacuumEnv:
                     robot['y'] = planned_y
                     robot['energy'] -= self.e_move
 
-        # 4. 處理撿垃圾（在所有機器人移動後）
-        for robot in self.robots:
-            if not robot['is_active']:
-                continue
-
-            x, y = robot['x'], robot['y']
-            if self.dynamic_grid[y, x] == 1:
-                # 撿起垃圾
-                robot['garbage_collected'] += 1
-                self.dynamic_grid[y, x] = 0
-
-        # 5. 更新關機狀態
+        # 4. 更新關機狀態
         for robot in self.robots:
             # 能量不超過上限，不低於0
             robot['energy'] = max(0, min(self.initial_energy, robot['energy']))
@@ -298,38 +219,13 @@ class RobotVacuumEnv:
             if robot['energy'] <= 0:
                 robot['is_active'] = False
 
-        # 6. 生成新垃圾
-        self._generate_garbage()
-
-        # 7. 回合計數
+        # 5. 回合計數
         self.current_step += 1
 
-        # 8. 檢查結束
+        # 6. 檢查結束
         done = self.current_step >= self.n_steps
 
         return self.get_global_state(), done
-
-    def _generate_garbage(self):
-        """
-        在空地上以機率 p 生成新垃圾
-        確保有機器人的位置不會生成垃圾
-        """
-        # 獲取所有機器人的位置
-        robot_positions = set()
-        for robot in self.robots:
-            robot_positions.add((robot['y'], robot['x']))
-
-        # 遍歷所有格子
-        for y in range(self.n):
-            for x in range(self.n):
-                # 只在空地上生成垃圾
-                if self.static_grid[y, x] == self.EMPTY:
-                    # 該格子沒有垃圾且沒有機器人
-                    if (self.dynamic_grid[y, x] == 0 and
-                        (y, x) not in robot_positions):
-                        # 以機率 p 生成垃圾
-                        if random.random() < self.p:
-                            self.dynamic_grid[y, x] = 1
 
     def get_global_state(self) -> Dict[str, Any]:
         """
@@ -340,7 +236,6 @@ class RobotVacuumEnv:
         """
         return {
             'static_grid': self.static_grid.copy(),
-            'dynamic_grid': self.dynamic_grid.copy(),
             'robots': [robot.copy() for robot in self.robots],
             'current_step': self.current_step
         }
@@ -355,7 +250,7 @@ class RobotVacuumEnv:
             window_width = self.n * self.cell_size + self.info_panel_width
             window_height = self.n * self.cell_size
             self.screen = pygame.display.set_mode((window_width, window_height))
-            pygame.display.set_caption('多機器人清掃模擬器')
+            pygame.display.set_caption('多機器人能量求生模擬器')
             self.clock = pygame.time.Clock()
 
         # 清空畫面
@@ -371,27 +266,14 @@ class RobotVacuumEnv:
                     self.cell_size
                 )
 
-                # 繪製靜態元素（家具、充電座）
-                if self.static_grid[y, x] == self.FURNITURE:
-                    pygame.draw.rect(self.screen, self.COLOR_FURNITURE, rect)
-                elif self.static_grid[y, x] == self.CHARGER:
+                # 繪製靜態元素（充電座）
+                if self.static_grid[y, x] == self.CHARGER:
                     pygame.draw.rect(self.screen, self.COLOR_CHARGER, rect)
                 else:
                     pygame.draw.rect(self.screen, self.COLOR_EMPTY, rect)
 
                 # 繪製網格線
                 pygame.draw.rect(self.screen, self.COLOR_GRID, rect, 1)
-
-                # 繪製垃圾
-                if self.dynamic_grid[y, x] == 1:
-                    center_x = x * self.cell_size + self.cell_size // 2
-                    center_y = y * self.cell_size + self.cell_size // 2
-                    pygame.draw.circle(
-                        self.screen,
-                        self.COLOR_GARBAGE,
-                        (center_x, center_y),
-                        self.cell_size // 6
-                    )
 
         # 繪製機器人
         for robot in self.robots:
@@ -506,15 +388,6 @@ class RobotVacuumEnv:
 
             y_offset += 20
 
-            # 垃圾數
-            garbage_text = font_text.render(
-                f'垃圾: {robot["garbage_collected"]}',
-                True,
-                (255, 255, 255)
-            )
-            self.screen.blit(garbage_text, (panel_x + 10, y_offset))
-            y_offset += 20
-
             # 充電次數
             charge_text = font_text.render(
                 f'充電: {robot["charge_count"]} 次',
@@ -540,20 +413,54 @@ class RobotVacuumEnv:
             self.screen = None
 
 
+def get_rational_action(robot: Dict[str, Any], home_pos: Tuple[int, int], n: int) -> int:
+    """
+    計算機器人的理性行動（回家充電策略）
+
+    Args:
+        robot: 機器人狀態字典
+        home_pos: 機器人的家（充電座）位置 (y, x)
+        n: 地圖大小
+
+    Returns:
+        理性動作 (0-4)
+    """
+    x, y = robot['x'], robot['y']
+    home_y, home_x = home_pos
+
+    # 如果已經在家，停留充電
+    if (x, y) == (home_x, home_y):
+        return 4  # 停留
+
+    # 不在家，朝著家的方向移動
+    # 優先處理 x 軸方向
+    if x < home_x:
+        return 3  # 向右
+    elif x > home_x:
+        return 2  # 向左
+    # x 相同，處理 y 軸方向
+    elif y < home_y:
+        return 1  # 向下
+    elif y > home_y:
+        return 0  # 向上
+    else:
+        # 理論上不會到這裡
+        return 4  # 停留
+
+
 def main():
     """
-    主函數：示範如何使用 RobotVacuumEnv
+    主函數：使用 epsilon-greedy 策略進行能量求生模擬
     """
     # 配置環境參數
     config = {
-        'n': 15,              # 15×15 的房間
-        'k': 10,              # 家具至少 10 格
-        'p': 0.05,            # 5% 機率生成垃圾
-        'initial_energy': 100,  # 初始能量 100
-        'e_move': 1,          # 移動消耗 1 能量
-        'e_charge': 10,       # 充電增加 10 能量
-        'e_collision': 5,     # 碰撞消耗 5 能量
-        'n_steps': 500        # 總共 500 回合
+        'n': 3,                 # 3×3 的房間（預設）
+        'initial_energy': 100,  # 初始能量
+        'e_move': 1,            # 移動消耗 1 能量
+        'e_charge': 5,          # 充電增加 5 能量
+        'e_collision': 3,       # 碰撞消耗 3 能量
+        'n_steps': 500,         # 總共 500 回合
+        'epsilon': 0.2          # 探索率 20%
     }
 
     # 創建環境
@@ -561,9 +468,27 @@ def main():
 
     # 重置環境
     state = env.reset()
-    print("環境已初始化！")
+
+    # 定義每個機器人的家（充電座位置）
+    n = config['n']
+    homes = {
+        0: (0, 0),
+        1: (0, n - 1),
+        2: (n - 1, 0),
+        3: (n - 1, n - 1)
+    }
+
+    print("=" * 50)
+    print("多機器人能量求生模擬器")
+    print("=" * 50)
     print(f"房間大小: {config['n']}×{config['n']}")
     print(f"總回合數: {config['n_steps']}")
+    print(f"探索率 (ε): {config['epsilon']*100:.0f}%")
+    print(f"初始能量: {config['initial_energy']}")
+    print("=" * 50)
+    print("\n策略說明：")
+    print(f"  - {config['epsilon']*100:.0f}% 機率：隨機探索")
+    print(f"  - {(1-config['epsilon'])*100:.0f}% 機率：理性求生（回家充電）")
     print("\n開始模擬...")
     print("提示：關閉視窗或按 Ctrl+C 可結束模擬\n")
 
@@ -574,8 +499,24 @@ def main():
     done = False
     try:
         while not done:
-            # 隨機生成4個動作
-            actions = [random.randint(0, 4) for _ in range(4)]
+            # 使用 epsilon-greedy 策略生成動作
+            actions = []
+            for i in range(4):
+                robot = env.robots[i]
+
+                if not robot['is_active']:
+                    # 已停機，只能停留
+                    actions.append(4)
+                    continue
+
+                if random.random() < config['epsilon']:
+                    # 探索 (Explore)：隨機行動
+                    action = random.randint(0, 4)
+                else:
+                    # 利用 (Exploit)：執行理性求生策略
+                    action = get_rational_action(robot, homes[i], n)
+
+                actions.append(action)
 
             # 執行一步
             state, done = env.step(actions)
@@ -589,27 +530,46 @@ def main():
                     done = True
                     break
 
-            # 每100回合顯示統計
-            if env.current_step % 100 == 0:
-                total_garbage = sum(r['garbage_collected'] for r in env.robots)
+            # 每50回合顯示統計
+            if env.current_step % 50 == 0 and env.current_step > 0:
                 active_robots = sum(1 for r in env.robots if r['is_active'])
+                avg_energy = sum(r['energy'] for r in env.robots) / 4
+                total_charges = sum(r['charge_count'] for r in env.robots)
                 print(f"回合 {env.current_step}: "
-                      f"總垃圾={total_garbage}, "
-                      f"活躍機器人={active_robots}")
+                      f"活躍={active_robots}/4, "
+                      f"平均能量={avg_energy:.1f}, "
+                      f"總充電={total_charges}次")
 
     except KeyboardInterrupt:
-        print("\n模擬被中斷")
+        print("\n\n模擬被使用者中斷")
 
     finally:
         # 顯示最終統計
-        print("\n=== 模擬結束 ===")
+        print("\n" + "=" * 50)
+        print("模擬結束 - 最終統計")
+        print("=" * 50)
         print(f"總回合數: {env.current_step}")
+        print()
+
+        total_charges = 0
+        surviving_robots = 0
+
         for robot in env.robots:
-            print(f"機器人 {robot['id']}: "
-                  f"垃圾={robot['garbage_collected']}, "
-                  f"能量={robot['energy']}, "
-                  f"充電={robot['charge_count']}次, "
-                  f"狀態={'運行中' if robot['is_active'] else '已停機'}")
+            total_charges += robot['charge_count']
+            if robot['is_active']:
+                surviving_robots += 1
+
+            status = '✓ 存活' if robot['is_active'] else '✗ 停機'
+            print(f"機器人 {robot['id']} ({status}):")
+            print(f"  剩餘能量: {robot['energy']}/{config['initial_energy']}")
+            print(f"  充電次數: {robot['charge_count']} 次")
+            print()
+
+        print("-" * 50)
+        print(f"存活機器人: {surviving_robots}/4")
+        print(f"團隊總充電: {total_charges} 次")
+        print(f"平均充電次數: {total_charges/4:.1f} 次/機器人")
+        print("=" * 50)
 
         # 關閉環境
         env.close()
