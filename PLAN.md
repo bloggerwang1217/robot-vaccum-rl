@@ -20,12 +20,12 @@ IDQN 是將單智能體 DQN 演算法直接應用於多智能體環境的最直�
 
 ### 2.2. 智能體 (Agent)
 
-*   **類別名稱**：`DQNAgent` (基於您提供的 PyTorch 實作)。
+*   **類別名稱**：`IndependentDQNAgent` (基於經典 DQN 實作)。
 *   **核心算法**：標準 DQN (Standard DQN)。
-    *   **Target Network**：**保留**，這是 DQN 穩定訓練的基礎機制。
-    *   **DDQN (Double DQN)**：**初始實驗不啟用**，以保持最純粹的 DQN 作為基準。但程式碼中保留此功能，可作為未來實驗變數。
-    *   **PER (Prioritized Experience Replay)**：**初始實驗不啟用**，以保持最純粹的 DQN 作為基準。但程式碼中保留此功能，可作為未來實驗變數。
-    *   **N-step Returns**：**啟用**，並將 `n` 作為一個可調控的實驗參數。當 `n=1` 時，等同於標準 1-step DQN。
+    *   **Q-Network**：深度神經網路，估計每個狀態-動作對的 Q 值。
+    *   **Target Network**：Q-Network 的延遲複製，用於穩定訓練目標。
+    *   **Experience Replay**：簡單的經驗回放緩衝區 (deque)，隨機採樣訓練批次。
+    *   **保持最純粹的 DQN**：不使用 DDQN、PER、N-step returns 等進階技術，以確保實驗結果的可解釋性。
 *   **核心組件**：
     *   **Q-Network**：一個深度神經網路，用於估計每個狀態-動作對的 Q 值。
     *   **Target Network**：Q-Network 的延遲複製，用於穩定訓練目標。
@@ -217,14 +217,20 @@ def calculate_reward_for_robot(robot_after_step, prev_robot_state, collision_occ
 
 *   **環境參數**：`n`, `initial_energy`, `e_move`, `e_charge`, `e_collision`, `n_steps` (這些將從 `energy_survival_config.py` 加載或自定義)。
 *   **DQN 超參數**：
-    *   `learning_rate` (學習率)
-    *   `gamma` (折扣因子)：對於觀察長期攻擊行為至關重要，可能需要較高的值。
-    *   **`epsilon` (探索率)**：**核心實驗參數**。我們將使用**固定的 `epsilon`** 而非傳統的衰減式 `epsilon`。這代表了每個 Agent 行為中固有的「隨機性」或「非理性」程度。透過設置不同的固定 `epsilon` 值（例如，高、低、或混合群體），我們可以觀察不同程度的隨機性對群體動態的影響。
-    *   `replay_buffer_size` (回放緩衝區大小)
-    *   `batch_size` (訓練批次大小)
-    *   `target_update_frequency` (目標網路更新頻率)
-    *   `neural_network_architecture` (神經網路層數、節點數)。
-    *   **`n` (N-step returns)**：**核心實驗參數**，用於調控 Agent 的「遠見」。當 `n=1` 時等同於標準 1-step DQN。
+    *   `learning_rate` (學習率)：固定為 0.0001
+    *   `replay_buffer_size` (回放緩衝區大小)：固定為 100,000
+    *   `batch_size` (訓練批次大小)：固定為 32
+    *   `target_update_frequency` (目標網路更新頻率)：固定為 1,000 步
+    *   `neural_network_architecture` (神經網路層數、節點數)：MLP (128→256→256→128)
+*   **核心實驗參數** (對應 Hofstede's Cultural Dimensions Theory)：
+    *   **`epsilon` (固定探索率)**：**控制「成就動機與隨機性」(Motivation towards Achievement and Success)**
+        *   代表 Agent 行為中固有的「隨機性」或「非理性」程度
+        *   使用**固定的 `epsilon`** 而非傳統的衰減式 `epsilon`
+        *   建議實驗值：0.0 (純理性), 0.1 (低隨機), 0.2 (中等), 0.5 (高隨機)
+    *   **`gamma` (折扣因子)**：**控制「時間導向」(Long-term vs Short-term Orientation)**
+        *   決定 Agent 對未來獎勵的重視程度，直接影響「遠見」
+        *   對於觀察長期策略（如攻擊行為）的湧現至關重要
+        *   建議實驗值：0.5 (短視), 0.9 (中等遠見), 0.99 (長遠視野)
 
 ## 4. 評估指標與研究重點
 
@@ -245,9 +251,9 @@ def calculate_reward_for_robot(robot_after_step, prev_robot_state, collision_occ
 我們將使用 `wandb` (Weights & Biases) 來追蹤和視覺化實驗過程中的動態變化。在每個 Episode 結束後，我們將計算並記錄以下指標：
 
 *   **實驗參數 (Hyperparameters)**：
-    *   `epsilon`: 固定的探索率。
-    *   `n_step`: N-step returns 的步數 `n`。
-    *   其他相關的超參數，如 `learning_rate`, `gamma` 等。
+    *   `epsilon`: 固定的探索率（成就動機維度）。
+    *   `gamma`: 折扣因子（時間導向維度）。
+    *   其他相關的超參數，如 `learning_rate`, `batch_size` 等。
 
 *   **每回合匯總指標 (Per-Episode Summary Metrics)**：
     *   `episode`: 當前回合數。
@@ -260,7 +266,7 @@ def calculate_reward_for_robot(robot_after_step, prev_robot_state, collision_occ
     *   `total_kills_per_episode`: 該回合中，透過後處理分析計算出的「擊殺」總次數。
     *   `mean_final_energy`: 回合結束時，所有 agent 的平均剩餘能量。
 
-透過在 `wandb` 中繪製這些指標隨 `episode` 變化的曲線，我們可以直觀地比較不同實驗參數（如 `epsilon` 和 `n`）對群體動態的影響。
+透過在 `wandb` 中繪製這些指標隨 `episode` 變化的曲線，我們可以直觀地比較不同實驗參數（如 `epsilon` 和 `gamma`）對群體動態的影響。
 
 ### 4.3. 關鍵模型存檔與視覺化評估 (Key Model Checkpointing & Visual Evaluation)
 
@@ -285,23 +291,106 @@ def calculate_reward_for_robot(robot_after_step, prev_robot_state, collision_occ
 *   **追蹤演化路徑**：透過定期快照，我們可以觀察 agent 策略隨時間的演變。
 *   **重現與分析策略**：我們可以隨時載入這些「大腦」，在視覺化環境中觀察它們的決策模式，從而深入理解導致該有趣行為的策略是什麼，而不是僅僅重播一個固定的動作序列。
 
-## 5. 健全性檢查與基準驗證 (Sanity Checks and Baseline Validation)
+## 5. 健全性檢查與實驗設計 (Sanity Checks and Experimental Design)
 
-在正式開始分析湧現行為之前，我們將執行以下幾個簡單的實驗，以確保環境、API 和我們的 DQN Agent 實作都按預期工作。
+在正式開始分析湧現行為之前，我們將執行一系列健全性檢查，以確保環境、API 和我們的 DQN Agent 實作都按預期工作。同時，我們設計了一個系統性的實驗矩陣來探索不同參數組合下的群體動態。
 
-**1. 純隨機策略 (`epsilon = 1.0`)**
-*   **設定**：將所有 agent 的 `epsilon` 設為 `1.0`。
+### 5.1. 健全性檢查 (Sanity Checks)
+
+這些極端參數組合用於快速驗證實作的正確性，而非研究湧現行為。
+
+**1. 完全短視策略 (`gamma = 0.0`)**
+*   **設定**：將所有 agent 的 `gamma` 設為 `0.0`（任意 `epsilon` 值）。
+*   **預期行為**：Agent 完全不考慮未來獎勵，只看當下。由於移動會立即扣能量（負獎勵），而停留獎勵為 0，agent 會選擇永遠不移動。
+*   **驗證指標**：
+    *   Agent 的動作應幾乎 100% 都是「停留 (STAY)」。
+    *   存活率應為 0%（能量自然消耗導致全體餓死）。
+    *   總充電次數應為 0（從不主動前往充電座）。
+*   **意義**：驗證 Bellman equation 中 `gamma` 的作用是否正確實作。
+
+**2. 純隨機策略 (`epsilon = 1.0`)**
+*   **設定**：將所有 agent 的 `epsilon` 設為 `1.0`（任意 `gamma` 值）。
 *   **預期行為**：所有 agent 應該表現為完全的隨機遊走，對充電座沒有任何偏好。它們會迅速消耗能量，無法有效充電。
 *   **驗證指標**：
     *   動作分佈應大致均勻（每個動作約 20% 的機率）。
-    *   Agent 的存活率應為 0%，且在相對早的回合就因能量耗盡而停機。
+    *   存活率應為 0%，且在相對早的回合就因能量耗盡而停機。
+    *   Q-network 的訓練應該無效（因為永遠不用 Q 值來選動作）。
+*   **意義**：驗證 epsilon-greedy 策略的隨機探索部分是否正確。
 
-**2. 純利用策略 (`epsilon = 0.0`)**
-*   **設定**：將所有 agent 的 `epsilon` 設為 `0.0`。
-*   **預期行為**：在經過短暫的初始學習後，所有 agent 都應該迅速學會「待在充電座上不動」是最大化獎勵的最佳策略。
+**3. 純貪婪策略 (`epsilon = 0.0`, `gamma > 0`)**
+*   **設定**：將所有 agent 的 `epsilon` 設為 `0.0`（配合有意義的 `gamma` 如 0.99）。
+*   **預期行為**：在經過短暫的初始學習後，所有 agent 都應該迅速學會「走向並待在充電座上不動」是最大化獎勵的最佳策略。
 *   **驗證指標**：
-    *   在幾個 episode 之後，所有 agent 的動作應該幾乎 100% 都是「停留 (STAY)」。
-    *   存活率應為 100%，平均能量應接近或保持在最大值。
+    *   訓練穩定後，存活率應為 100%，平均能量應接近或保持在最大值。
+    *   Agent 應該直接走向最近的充電座並停留。
+*   **意義**：驗證 DQN 能否在無探索雜訊的情況下學會基本的生存策略。
+
+### 5.2. 實驗矩陣 (Experimental Matrix)
+
+我們設計了一個 **4 (epsilon) × 4 (gamma) = 16 組**實驗矩陣，涵蓋從完全隨機到完全理性，從完全短視到長遠視野的各種組合。
+
+#### 實驗參數組合
+
+| Epsilon \ Gamma | **0.0** (短視 Sanity) | **0.5** (短視) | **0.9** (中等遠見) | **0.99** (長遠視野) |
+|----------------|----------------------|---------------|------------------|-------------------|
+| **0.0** (貪婪 Sanity) | 不動餓死 | 守最近充電座 | 基本生存策略 | 優化生存+可能佔位 |
+| **0.25** (中低隨機) | 不動餓死 | 短視但有策略 | **動態平衡候選** | 策略性競爭 |
+| **0.5** (中高隨機) | 不動餓死 | 混亂但偶爾充電 | 隨機+有目標 | 隨機攻擊行為？ |
+| **1.0** (隨機 Sanity) | 隨機餓死 | 隨機餓死 | 隨機餓死 | 隨機餓死 |
+
+#### 實驗組分類
+
+**健全性檢查組 (Sanity Checks)** - 快速驗證實作正確性：
+- `(epsilon=*, gamma=0.0)` - 所有組合應全部不動餓死
+- `(epsilon=1.0, gamma=*)` - 所有組合應全部隨機餓死
+- `(epsilon=0.0, gamma=0.99)` - 應該學會完美生存（baseline）
+
+**有趣的湧現行為組 (Emergent Behavior Candidates)**：
+- `(epsilon=0.25, gamma=0.9)` - **最有潛力達到動態平衡**
+  - 75% 理性 + 25% 隨機 → 主要依靠策略但避免過度貪婪
+  - 10 步遠見 → 足夠規劃但不會過度長期主義
+  - 預期：可能看到合作與競爭的平衡，偶爾出現攻擊行為
+
+- `(epsilon=0.25, gamma=0.99)` - **高度策略性競爭**
+  - 預期：agent 會發展出明確的攻擊策略，為了長期利益（獨佔資源）而犧牲短期（碰撞懲罰）
+
+- `(epsilon=0.5, gamma=0.99)` - **隨機性中的長期規劃**
+  - 預期：混沌但有目標的行為，可能出現意外的合作或攻擊模式
+
+- `(epsilon=0.25, gamma=0.5)` - **短視但有策略**
+  - 預期：只顧眼前 3-5 步，可能導致資源搶奪但無法發展長期攻擊策略
+
+### 5.3. 對應 Hofstede's Cultural Dimensions Theory
+
+我們的實驗設計對應到文化維度理論的兩個維度：
+
+| 文化維度 | DQN 參數 | 低值行為 | 高值行為 |
+|---------|---------|---------|---------|
+| **Uncertainty Avoidance** <br> (避險 vs 成就動機) | `epsilon` | 純理性貪婪 (0.0) | 高度隨機探索 (1.0) |
+| **Long-term Orientation** <br> (時間導向) | `gamma` | 完全短視 (0.0) | 長遠視野 (0.99) |
+
+**研究問題**：
+1. 不同「文化組合」的 agent 群體會湧現出什麼樣的社會動態？
+2. 什麼樣的「文化」組合最容易產生攻擊性行為？
+3. 動態平衡是否只在特定「文化」範圍內出現？
+
+### 5.4. 實驗執行建議
+
+**階段 1：健全性檢查（快速驗證）**
+- 先跑 `gamma=0.0` 的所有組合（預期全部不動餓死）
+- 再跑 `epsilon=1.0` 的所有組合（預期全部隨機餓死）
+- 最後跑 `(epsilon=0.0, gamma=0.99)` （預期完美生存）
+- **如果以上結果符合預期** → 實作正確，可進入主實驗
+
+**階段 2：主實驗（探索湧現行為）**
+- 重點組合：`(epsilon=0.25, gamma=0.9)`, `(epsilon=0.25, gamma=0.99)`, `(epsilon=0.5, gamma=0.99)`
+- 每組跑 10,000 episodes
+- 使用 wandb 追蹤並比較 `total_kills_per_episode`, `survival_rate`, `mean_episode_reward` 等指標
+
+**階段 3：深度分析**
+- 選出有趣行為的 checkpoint 模型
+- 使用 `evaluate_models.py` 進行視覺化觀察
+- 分析「擊殺」事件的時序模式
 
 ## 6. 實作
 
