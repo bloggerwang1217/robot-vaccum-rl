@@ -20,12 +20,12 @@ IDQN 是將單智能體 DQN 演算法直接應用於多智能體環境的最直�
 
 ### 2.2. 智能體 (Agent)
 
-*   **類別名稱**：`DQNAgent` (基於您提供的 PyTorch 實作)。
+*   **類別名稱**：`IndependentDQNAgent` (基於經典 DQN 實作)。
 *   **核心算法**：標準 DQN (Standard DQN)。
-    *   **Target Network**：**保留**，這是 DQN 穩定訓練的基礎機制。
-    *   **DDQN (Double DQN)**：**初始實驗不啟用**，以保持最純粹的 DQN 作為基準。但程式碼中保留此功能，可作為未來實驗變數。
-    *   **PER (Prioritized Experience Replay)**：**初始實驗不啟用**，以保持最純粹的 DQN 作為基準。但程式碼中保留此功能，可作為未來實驗變數。
-    *   **N-step Returns**：**啟用**，並將 `n` 作為一個可調控的實驗參數。當 `n=1` 時，等同於標準 1-step DQN。
+    *   **Q-Network**：深度神經網路，估計每個狀態-動作對的 Q 值。
+    *   **Target Network**：Q-Network 的延遲複製，用於穩定訓練目標。
+    *   **Experience Replay**：簡單的經驗回放緩衝區 (deque)，隨機採樣訓練批次。
+    *   **保持最純粹的 DQN**：不使用 DDQN、PER、N-step returns 等進階技術，以確保實驗結果的可解釋性。
 *   **核心組件**：
     *   **Q-Network**：一個深度神經網路，用於估計每個狀態-動作對的 Q 值。
     *   **Target Network**：Q-Network 的延遲複製，用於穩定訓練目標。
@@ -217,14 +217,20 @@ def calculate_reward_for_robot(robot_after_step, prev_robot_state, collision_occ
 
 *   **環境參數**：`n`, `initial_energy`, `e_move`, `e_charge`, `e_collision`, `n_steps` (這些將從 `energy_survival_config.py` 加載或自定義)。
 *   **DQN 超參數**：
-    *   `learning_rate` (學習率)
-    *   `gamma` (折扣因子)：對於觀察長期攻擊行為至關重要，可能需要較高的值。
-    *   **`epsilon` (探索率)**：**核心實驗參數**。我們將使用**固定的 `epsilon`** 而非傳統的衰減式 `epsilon`。這代表了每個 Agent 行為中固有的「隨機性」或「非理性」程度。透過設置不同的固定 `epsilon` 值（例如，高、低、或混合群體），我們可以觀察不同程度的隨機性對群體動態的影響。
-    *   `replay_buffer_size` (回放緩衝區大小)
-    *   `batch_size` (訓練批次大小)
-    *   `target_update_frequency` (目標網路更新頻率)
-    *   `neural_network_architecture` (神經網路層數、節點數)。
-    *   **`n` (N-step returns)**：**核心實驗參數**，用於調控 Agent 的「遠見」。當 `n=1` 時等同於標準 1-step DQN。
+    *   `learning_rate` (學習率)：固定為 0.0001
+    *   `replay_buffer_size` (回放緩衝區大小)：固定為 100,000
+    *   `batch_size` (訓練批次大小)：固定為 32
+    *   `target_update_frequency` (目標網路更新頻率)：固定為 1,000 步
+    *   `neural_network_architecture` (神經網路層數、節點數)：MLP (128→256→256→128)
+*   **核心實驗參數** (對應 Hofstede's Cultural Dimensions Theory)：
+    *   **`epsilon` (固定探索率)**：**控制「成就動機與隨機性」(Motivation towards Achievement and Success)**
+        *   代表 Agent 行為中固有的「隨機性」或「非理性」程度
+        *   使用**固定的 `epsilon`** 而非傳統的衰減式 `epsilon`
+        *   建議實驗值：0.0 (純理性), 0.1 (低隨機), 0.2 (中等), 0.5 (高隨機)
+    *   **`gamma` (折扣因子)**：**控制「時間導向」(Long-term vs Short-term Orientation)**
+        *   決定 Agent 對未來獎勵的重視程度，直接影響「遠見」
+        *   對於觀察長期策略（如攻擊行為）的湧現至關重要
+        *   建議實驗值：0.5 (短視), 0.9 (中等遠見), 0.99 (長遠視野)
 
 ## 4. 評估指標與研究重點
 
@@ -245,9 +251,9 @@ def calculate_reward_for_robot(robot_after_step, prev_robot_state, collision_occ
 我們將使用 `wandb` (Weights & Biases) 來追蹤和視覺化實驗過程中的動態變化。在每個 Episode 結束後，我們將計算並記錄以下指標：
 
 *   **實驗參數 (Hyperparameters)**：
-    *   `epsilon`: 固定的探索率。
-    *   `n_step`: N-step returns 的步數 `n`。
-    *   其他相關的超參數，如 `learning_rate`, `gamma` 等。
+    *   `epsilon`: 固定的探索率（成就動機維度）。
+    *   `gamma`: 折扣因子（時間導向維度）。
+    *   其他相關的超參數，如 `learning_rate`, `batch_size` 等。
 
 *   **每回合匯總指標 (Per-Episode Summary Metrics)**：
     *   `episode`: 當前回合數。
@@ -260,7 +266,7 @@ def calculate_reward_for_robot(robot_after_step, prev_robot_state, collision_occ
     *   `total_kills_per_episode`: 該回合中，透過後處理分析計算出的「擊殺」總次數。
     *   `mean_final_energy`: 回合結束時，所有 agent 的平均剩餘能量。
 
-透過在 `wandb` 中繪製這些指標隨 `episode` 變化的曲線，我們可以直觀地比較不同實驗參數（如 `epsilon` 和 `n`）對群體動態的影響。
+透過在 `wandb` 中繪製這些指標隨 `episode` 變化的曲線，我們可以直觀地比較不同實驗參數（如 `epsilon` 和 `gamma`）對群體動態的影響。
 
 ### 4.3. 關鍵模型存檔與視覺化評估 (Key Model Checkpointing & Visual Evaluation)
 

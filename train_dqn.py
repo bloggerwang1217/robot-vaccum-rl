@@ -50,7 +50,6 @@ class IndependentDQNAgent:
         self.gamma = args.gamma
         self.epsilon = args.epsilon  # Fixed epsilon (no decay)
         self.batch_size = args.batch_size
-        self.n = args.n  # N-step returns
 
         # Network architecture
         self.q_net = DQN(action_dim, observation_dim).to(device)
@@ -63,12 +62,6 @@ class IndependentDQNAgent:
 
         # Replay buffer (simple deque)
         self.memory = deque(maxlen=args.memory_size)
-
-        # N-step buffer
-        if self.n > 1:
-            self.n_step_buffer = deque(maxlen=self.n)
-        else:
-            self.n_step_buffer = None
 
         # Counters
         self.train_count = 0
@@ -98,31 +91,9 @@ class IndependentDQNAgent:
         """
         Store experience to replay buffer
 
-        Supports N-step returns
+        Standard 1-step DQN transition
         """
-        if self.n_step_buffer is not None:
-            # N-step returns
-            self.n_step_buffer.append((state, action, reward, next_state, done))
-
-            if len(self.n_step_buffer) == self.n or done:
-                # Compute n-step cumulative reward
-                cum_reward = 0
-                for idx, (_, _, r, _, _) in enumerate(self.n_step_buffer):
-                    cum_reward += (self.gamma ** idx) * r
-
-                start_state, start_action, _, _, _ = self.n_step_buffer[0]
-                _, _, _, end_next_state, end_done = self.n_step_buffer[-1]
-
-                # Store n-step transition
-                self.memory.append((start_state, start_action, cum_reward, end_next_state, end_done))
-
-                if done:
-                    self.n_step_buffer.clear()
-                else:
-                    self.n_step_buffer.popleft()
-        else:
-            # 1-step transition
-            self.memory.append((state, action, reward, next_state, done))
+        self.memory.append((state, action, reward, next_state, done))
 
     def train_step(self, replay_start_size: int) -> Dict[str, float]:
         """
@@ -156,12 +127,7 @@ class IndependentDQNAgent:
         # Compute target Q-values (Standard DQN)
         with torch.no_grad():
             next_q_values = self.target_net(next_states).max(1)[0]
-
-            # N-step returns: gamma^n
-            if self.n > 1:
-                target_q_values = rewards + (self.gamma ** self.n) * next_q_values * (1 - dones)
-            else:
-                target_q_values = rewards + self.gamma * next_q_values * (1 - dones)
+            target_q_values = rewards + self.gamma * next_q_values * (1 - dones)
 
         # Compute loss (MSE)
         loss = nn.MSELoss()(q_values, target_q_values)
@@ -458,7 +424,6 @@ def main():
     parser.add_argument("--batch-size", type=int, default=32, help="Training batch size")
     parser.add_argument("--replay-start-size", type=int, default=1000, help="Minimum replay buffer size before training")
     parser.add_argument("--target-update-frequency", type=int, default=1000, help="Target network update frequency")
-    parser.add_argument("--n", type=int, default=1, help="N-step returns (1 for standard DQN)")
 
     # Training settings
     parser.add_argument("--num-episodes", type=int, default=10000, help="Number of training episodes")

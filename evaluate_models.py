@@ -57,7 +57,6 @@ class ModelEvaluator:
             gamma=args.gamma,
             epsilon=args.eval_epsilon,  # Use low epsilon for evaluation
             batch_size=32,
-            n=args.n,
             lr=0.0001,
             memory_size=10000
         )
@@ -292,7 +291,6 @@ def main():
     parser.add_argument("--eval-epsilon", type=float, default=0.05,
                        help="Epsilon for evaluation (low value to show learned policy)")
     parser.add_argument("--gamma", type=float, default=0.99, help="Discount factor (should match training)")
-    parser.add_argument("--n", type=int, default=1, help="N-step returns (should match training)")
 
     args = parser.parse_args()
 
