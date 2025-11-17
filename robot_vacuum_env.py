@@ -81,8 +81,8 @@ class RobotVacuumEnv:
         # Pygame 相關
         self.screen = None
         self.clock = None
-        self.cell_size = 50  # 每個格子的像素大小
-        self.info_panel_width = 300  # 資訊面板寬度
+        self.cell_size = 300  # 每個格子的像素大小 (超級大!)
+        self.info_panel_width = 700  # 資訊面板寬度 (超級大!)
 
         # 四個角落的充電座位置
         self.charger_positions = [
@@ -250,7 +250,7 @@ class RobotVacuumEnv:
             window_width = self.n * self.cell_size + self.info_panel_width
             window_height = self.n * self.cell_size
             self.screen = pygame.display.set_mode((window_width, window_height))
-            pygame.display.set_caption('多機器人能量求生模擬器')
+            pygame.display.set_caption('Multi-Robot Energy Survival Simulator')
             self.clock = pygame.time.Clock()
 
         # 清空畫面
@@ -328,53 +328,61 @@ class RobotVacuumEnv:
             (panel_x, 0, panel_width, self.n * self.cell_size)
         )
 
-        # 設置字體
-        font_title = pygame.font.Font(None, 28)
-        font_text = pygame.font.Font(None, 22)
+        # 設置字體 (超級大!)
+        font_title = pygame.font.Font(None, 72)
+        font_text = pygame.font.Font(None, 52)
 
         # 標題
-        title = font_title.render('機器人狀態', True, (255, 255, 255))
-        self.screen.blit(title, (panel_x + 10, 10))
+        title = font_title.render('Robot Status', True, (255, 255, 255))
+        self.screen.blit(title, (panel_x + 20, 20))
 
         # 顯示回合數
         step_text = font_text.render(
-            f'回合: {self.current_step}/{self.n_steps}',
+            f'Step: {self.current_step}/{self.n_steps}',
             True,
             (255, 255, 255)
         )
-        self.screen.blit(step_text, (panel_x + 10, 40))
+        self.screen.blit(step_text, (panel_x + 20, 90))
 
-        # 繪製每台機器人的狀態
-        y_offset = 80
+        # 繪製每台機器人的狀態 (動態計算間距以適應4個機器人)
+        # 總可用高度 = 視窗高度 - 頂部標題區域
+        available_height = self.n * self.cell_size - 160
+        # 每個機器人的區域高度
+        robot_section_height = available_height // 4
+
+        y_offset = 160
+
         for robot in self.robots:
+            section_start = y_offset
+
             # 機器人標題
             robot_title = font_text.render(
-                f'機器人 {robot["id"]}',
+                f'Robot {robot["id"]}',
                 True,
                 self.ROBOT_COLORS[robot['id']]
             )
-            self.screen.blit(robot_title, (panel_x + 10, y_offset))
-            y_offset += 25
+            self.screen.blit(robot_title, (panel_x + 20, y_offset))
+            y_offset += 45
 
-            # 能量條
+            # 能量文字
             energy_text = font_text.render(
-                f'能量: {robot["energy"]}/{self.initial_energy}',
+                f'Energy: {robot["energy"]}/{self.initial_energy}',
                 True,
                 (255, 255, 255)
             )
-            self.screen.blit(energy_text, (panel_x + 10, y_offset))
-            y_offset += 20
+            self.screen.blit(energy_text, (panel_x + 20, y_offset))
+            y_offset += 40
 
             # 能量條圖形
-            bar_width = panel_width - 30
-            bar_height = 15
+            bar_width = panel_width - 50
+            bar_height = 28
             energy_ratio = robot['energy'] / self.initial_energy
 
             # 背景條
             pygame.draw.rect(
                 self.screen,
                 (100, 100, 100),
-                (panel_x + 10, y_offset, bar_width, bar_height)
+                (panel_x + 20, y_offset, bar_width, bar_height)
             )
 
             # 能量條
@@ -383,26 +391,23 @@ class RobotVacuumEnv:
                 pygame.draw.rect(
                     self.screen,
                     color,
-                    (panel_x + 10, y_offset, bar_width * energy_ratio, bar_height)
+                    (panel_x + 20, y_offset, bar_width * energy_ratio, bar_height)
                 )
 
-            y_offset += 20
-
-            # 充電次數
-            charge_text = font_text.render(
-                f'充電: {robot["charge_count"]} 次',
-                True,
-                (255, 255, 255)
-            )
-            self.screen.blit(charge_text, (panel_x + 10, y_offset))
-            y_offset += 20
-
-            # 狀態
-            status = '運行中' if robot['is_active'] else '已停機'
-            status_color = (0, 255, 0) if robot['is_active'] else (255, 0, 0)
-            status_text = font_text.render(f'狀態: {status}', True, status_color)
-            self.screen.blit(status_text, (panel_x + 10, y_offset))
             y_offset += 35
+
+            # 充電次數和狀態合併在一行
+            charge_status_text = f'Charges: {robot["charge_count"]} | '
+            status = 'Active' if robot['is_active'] else 'Inactive'
+            charge_text = font_text.render(charge_status_text, True, (255, 255, 255))
+            self.screen.blit(charge_text, (panel_x + 20, y_offset))
+
+            status_color = (0, 255, 0) if robot['is_active'] else (255, 0, 0)
+            status_text = font_text.render(status, True, status_color)
+            self.screen.blit(status_text, (panel_x + 20 + charge_text.get_width(), y_offset))
+
+            # 移動到下一個機器人區域
+            y_offset = section_start + robot_section_height
 
     def close(self):
         """

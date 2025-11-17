@@ -193,7 +193,7 @@ class MultiAgentTrainer:
         self.agent_ids = ['robot_0', 'robot_1', 'robot_2', 'robot_3']
         self.agents = {}
 
-        observation_dim = 29  # According to PLAN.md 2.3.1
+        observation_dim = self.env.observation_space.shape[0]  # Get actual observation dim from env
         action_dim = 5  # UP, DOWN, LEFT, RIGHT, STAY
 
         for agent_id in self.agent_ids:
@@ -433,6 +433,7 @@ def main():
     # Wandb and logging
     parser.add_argument("--wandb-project", type=str, default="multi-robot-idqn", help="Wandb project name")
     parser.add_argument("--wandb-run-name", type=str, default="idqn-base", help="Wandb run name")
+    parser.add_argument("--wandb-mode", type=str, default="offline", help="Wandb mode (online/offline/disabled)")
     parser.add_argument("--save-dir", type=str, default="./models", help="Directory to save models")
 
     args = parser.parse_args()
@@ -442,7 +443,8 @@ def main():
         project=args.wandb_project,
         name=args.wandb_run_name,
         config=vars(args),
-        save_code=True
+        save_code=True,
+        mode=args.wandb_mode
     )
 
     # Train
