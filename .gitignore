@@ -20,6 +20,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# Training and validation
+models/
+wandb/
+
 # Virtual Environment
 venv/
 ENV/
