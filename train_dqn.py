@@ -472,6 +472,7 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
 
     # Wandb and logging
+    parser.add_argument("--wandb-entity", type=str, default=None, help="Wandb entity (username or team name)")
     parser.add_argument("--wandb-project", type=str, default="multi-robot-idqn", help="Wandb project name")
     parser.add_argument("--wandb-run-name", type=str, default="idqn-base", help="Wandb run name")
     parser.add_argument("--wandb-mode", type=str, default="offline", help="Wandb mode (online/offline/disabled)")
@@ -480,13 +481,17 @@ def main():
     args = parser.parse_args()
 
     # Initialize wandb
-    wandb.init(
-        project=args.wandb_project,
-        name=args.wandb_run_name,
-        config=vars(args),
-        save_code=True,
-        mode=args.wandb_mode
-    )
+    wandb_config = {
+        "project": args.wandb_project,
+        "name": args.wandb_run_name,
+        "config": vars(args),
+        "save_code": True,
+        "mode": args.wandb_mode
+    }
+    if args.wandb_entity:
+        wandb_config["entity"] = args.wandb_entity
+
+    wandb.init(**wandb_config)
 
     # Train
     trainer = MultiAgentTrainer(args)

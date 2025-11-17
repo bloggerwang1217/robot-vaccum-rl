@@ -59,8 +59,10 @@ for ((i=0; i<${#configs[@]}; i++)); do
     --num-episodes 10000 \
     --save-dir "$run_dir" \
     --save-frequency 1000 \
+    --wandb-entity lazyhao-national-taiwan-university \
+    --wandb-project robot-vacuum-rl \
     --wandb-run-name "$config_name" \
-    --wandb-mode offline \
+    --wandb-mode online \
     2>&1 | tee "$run_dir/training.log"
 
   echo ""
