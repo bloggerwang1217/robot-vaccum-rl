@@ -1,18 +1,15 @@
 #!/bin/bash
 
-# 機器人吸塵器 RL 批次訓練腳本
-# 按順序執行多個訓練配置
+# 機器人吸塵器 RL 批次訓練腳本（恢復模式）
+# 從第三個配置開始執行
 
-set -e  # 任何命令失敗就停止執行
+set -e
 
-# 獲取腳本所在目錄
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-
-# 模型儲存根目錄
 MODELS_DIR="${SCRIPT_DIR}/models/batch_training_$(date +%Y%m%d_%H%M%S)"
 
 echo "=========================================="
-echo "機器人吸塵器強化學習 - 批次訓練"
+echo "機器人吸塵器強化學習 - 批次訓練（恢復）"
 echo "=========================================="
 echo "開始時間: $(date)"
 echo "模型儲存目錄: $MODELS_DIR"
@@ -29,13 +26,14 @@ declare -a configs=(
   "collision-10-energy-200-epsilon-0.3|--e-collision 10 --initial-energy 200 --epsilon 0.3"
 )
 
-# 訓練總數
+# 從第三個開始（索引 2）
+start_index=2
 total_configs=${#configs[@]}
-echo "共有 $total_configs 個訓練配置"
+echo "從第 $((start_index+1))/6 個配置開始執行（跳過前 2 個已完成的）"
 echo ""
 
 # 遍歷每個配置並執行訓練
-for ((i=0; i<${#configs[@]}; i++)); do
+for ((i=start_index; i<${#configs[@]}; i++)); do
   config="${configs[$i]}"
   config_name="${config%|*}"
   config_params="${config#*|}"
