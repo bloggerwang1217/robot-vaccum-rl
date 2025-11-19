@@ -48,7 +48,6 @@ Thumbs.db
 .idea/
 
 # Pygame
-*.log
 
 # Models and Training Data
 *.pt
